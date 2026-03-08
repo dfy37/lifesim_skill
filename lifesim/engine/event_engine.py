@@ -30,41 +30,52 @@ class DeepSeek:
         return response.choices[0].message.content
 
 class OfflineLifeEventEngine:
-    def __init__(self, life_events) -> None:
-        self.main_events = life_events
+    def __init__(self, event_sequences_path):
+        self.events = load_jsonl_data(event_sequences_path)
+        self.uid2events = {event['user_id']: event for event in self.events}
+        self.id2events = {event['id']: event for event in self.events}
+    
+    def set_event_sequence(self, sequence_id: str):
         self.event_index = 0
-        self.logger = get_logger(__name__, silent=False)
-        self.logger.info("OfflineLifeEventEngine initialized with %s events", self.total_events())
+        self.main_events = self.id2events.get(sequence_id, None)
+        self.user_id = self.main_events['user_id'] if self.main_events else None
+        self.theme = self.main_events['theme'] if self.main_events else None
+        self.longterm_goal = self.main_events.get('longterm_goal', '') if self.main_events else ''
+        self.sequence_id = sequence_id
 
-    def _get_event_list(self) -> list:
-        if not self.main_events:
-            return []
-        if isinstance(self.main_events, dict):
-            return self.main_events.get('events', [])
-        if isinstance(self.main_events, list):
-            return self.main_events
-        return []
+    def set_user(self, user_id: str):
+        """
+        Set user profile
+        
+        - **Description**:
+            - Sets the user profile for the event generation.
+        
+        - **Args**:
+            - user_profile: A dictionary containing user profile information.
+        """
+        self.user_id = user_id
+        self.event_index = 0
+        self.main_events = self.uid2events.get(user_id, [])
 
-    def total_events(self) -> int:
-        return len(self._get_event_list())
-
-    def remaining_events(self) -> int:
-        return max(self.total_events() - self.event_index, 0)
-
-    def has_next_event(self) -> bool:
-        has_next = self.remaining_events() > 0
-        if not has_next:
-            self.logger.info("No more events to generate.")
-        return has_next
+    def get_current_user_id(self):
+        return self.user_id
+    
+    def get_current_sequence_info(self):
+        return {
+            'user_id': self.user_id,
+            'sequence_id': self.sequence_id,
+            'theme': self.theme,
+            'longterm_goal': self.longterm_goal
+        }
 
     def generate_event(self):
-        if not self.has_next_event():
-            return None
-        event = self._get_event_list()[self.event_index]
-        formatted_event = LifeEvent.from_dict(event, timezone=None)
-        self.logger.info("Generating event %s/%s", self.event_index + 1, self.total_events())
+        event = self.main_events['events'][self.event_index]
+        formatted_event = POI_Event.from_dict(event, timezone=None)
+        event['dialogue_scene'] = '\n'.join([formatted_event.desc_time(), formatted_event.desc_location(), formatted_event.desc_weather()])
+        if not event['life_event']:
+            event['life_event'] = event['event']
         self.event_index += 1
-        return formatted_event
+        return event
 
 class Environment:
     def __init__(self, map) -> None:
@@ -138,6 +149,14 @@ class POI_Event:
         return event_str
 
     def desc_weather(self):
+        # template = "The weather condition is {conditions}. The average temperature is {temp}°C (high of {tempmax}°C, low of {tempmin}°C)."
+        # weather_str = template.format(
+        #     conditions=self.weather['conditions'],
+        #     description=self.weather['description'],
+        #     temp=self.weather['temp'],
+        #     tempmax=self.weather['tempmax'],
+        #     tempmin=self.weather['tempmin']
+        # )
         template = "The weather condition is {description}"
         weather_str = template.format(
             description=self.weather['description']
@@ -172,86 +191,6 @@ class POI_Event:
         else:
             infos = [fun() for key, fun in key2fun.items()]
         return sep.join(infos)
-
-
-@dataclass
-class LifeEvent:
-    time: str = ""
-    location: str | None = None
-    weather: str | None = None
-    event: str = ""
-    # environment: str | None = None
-    # action: str = ""
-    # observation: str = ""
-    # inner_thought: str = ""
-    extra: dict = field(default_factory=dict)
-
-    @staticmethod
-    def convert_utc_to_target_zone(time_str, timezone: str = "America/New_York"):
-        return POI_Event.convert_utc_to_target_zone(time_str, timezone)
-
-    @classmethod
-    def from_dict(cls, data, timezone: str = None):
-        standard_keys = {f.name for f in fields(cls) if f.name != "extra"}
-        known = {name: data.get(name, None) for name in standard_keys}
-        known["weather"] = known.get("weather") or data.get("weather") or ""
-        known["event"] = known.get("event") or data.get("event") or ""
-        # known["environment"] = known.get("environment") or data.get("weather") or ""
-        # known["action"] = known.get("action") or data.get("life_event") or data.get("event") or ""
-        # known["observation"] = known.get("observation") or data.get("intent") or ""
-        # known["inner_thought"] = known.get("inner_thought") or ""
-
-        if known['time']:
-            known['time'] = cls.convert_utc_to_target_zone(known["time"], timezone) if timezone else known["time"]
-
-        extras = {k: v for k, v in data.items() if k not in standard_keys}
-        return cls(**known, extra=extras)
-
-    def to_dict(self):
-        base = asdict(self)
-        base.update(self.extra)
-        base.pop("extra", None)
-        return base
-
-    def get(self, key, default=None):
-        return self.to_dict().get(key, default)
-
-    def __getitem__(self, key):
-        return self.to_dict()[key]
-    
-    def __str__(self):
-        parts = []
-
-        if self.time:
-            parts.append(f"[{self.time}]")
-
-        main_desc = []
-
-        if self.location:
-            main_desc.append(f"at {self.location}")
-        
-        if self.weather:
-            main_desc.append(f"the weather is {self.weather}")
-
-        # if self.environment:
-        #     main_desc.append(f"under {self.environment}")
-
-        # if self.action:
-        #     main_desc.append(f"{self.action}")
-
-        if main_desc:
-            parts.append(" ".join(main_desc))
-
-        if self.event:
-            parts.append(f"Encountered Life Event: {self.event}")
-        
-        # if self.observation:
-        #     parts.append(f"(Observation: {self.observation})")
-
-        # if self.inner_thought:
-        #     parts.append(f"(Inner thought: {self.inner_thought})")
-
-        return " ".join(parts) if parts else "Empty LifeEvent"
 
 class OnlineLifeEventEngine:
     def __init__(self, event_sequences_path, model=None, retriever=None):
