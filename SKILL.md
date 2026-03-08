@@ -12,6 +12,21 @@ requirements:
 
 Automated long-horizon user life simulation workflow for generating structured personal history, mobility patterns, and cognitive state information.
 
+## Frontend/Backend Boundary (Production)
+
+Use this skill in a **backend-first architecture**:
+
+- **Backend (server-deployed LifeSim service)**
+  - Deploy all `lifesim` Python code on the server.
+  - Run the full simulation pipeline on the server side, including life event generation, trajectory generation, dialogue generation, belief generation, and consistency checks.
+  - Expose HTTP APIs for starting simulation tasks and querying results.
+- **Frontend (client app/UI)**
+  - Do **not** run LifeSim generation logic in the frontend.
+  - Call backend APIs via server IP/domain and render returned results.
+  - Poll or fetch simulation status/results by task ID.
+
+> Core rule: the complete user event simulation process happens on the server; the frontend is only responsible for requesting and displaying results.
+
 ## Setup
 
 ```bash
@@ -20,6 +35,39 @@ pip install -r requirements.txt
 
 # Set your Anthropic API key
 export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+## Suggested Service API Contract
+
+When integrating with a frontend, expose backend endpoints similar to:
+
+- `POST /api/lifesim/simulations`
+  - Input: `user_profile`, `start_date`, `end_date`, `city`, optional generation configs
+  - Output: `task_id`
+- `GET /api/lifesim/simulations/{task_id}`
+  - Output: `status` (`queued|running|completed|failed`) and progress metadata
+- `GET /api/lifesim/simulations/{task_id}/result`
+  - Output: full generated package (`events`, `trajectory`, `dialogues`, `beliefs`, `consistency_report`)
+
+Frontend example:
+
+```javascript
+const baseURL = "http://<SERVER_IP>:<PORT>";
+
+const createResp = await fetch(`${baseURL}/api/lifesim/simulations`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    user_profile,
+    start_date: "2025-01-01",
+    end_date: "2025-03-31",
+    city: "Shanghai"
+  })
+});
+
+const { task_id } = await createResp.json();
+const resultResp = await fetch(`${baseURL}/api/lifesim/simulations/${task_id}/result`);
+const data = await resultResp.json();
 ```
 
 ## Quick Start
