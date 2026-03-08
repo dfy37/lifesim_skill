@@ -1,8 +1,7 @@
 """
 Core simulation functions for LifeSim user trajectory generation.
 
-All generation functions use Claude (claude-opus-4-6) with streaming
-and adaptive thinking for high-quality, coherent output.
+All generation functions use DeepSeek (deepseek-chat) via the OpenAI-compatible API.
 """
 
 import json
@@ -11,38 +10,35 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import anthropic
+from openai import OpenAI
 
-MODEL = "claude-opus-4-6"
+MODEL = "deepseek-chat"
 
-_client: anthropic.Anthropic | None = None
+_client: OpenAI | None = None
 
 
-def _get_client() -> anthropic.Anthropic:
+def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = anthropic.Anthropic()
+        _client = OpenAI(
+            api_key=os.environ.get("DEEPSEEK_API_KEY"),
+            base_url="https://api.deepseek.com",
+        )
     return _client
 
 
 def _call_claude(system: str, user: str, max_tokens: int = 8192) -> str:
-    """Call Claude with streaming and adaptive thinking, return full text."""
+    """Call DeepSeek chat, return full text."""
     client = _get_client()
-    full_text = ""
-    with client.messages.stream(
+    response = client.chat.completions.create(
         model=MODEL,
         max_tokens=max_tokens,
-        thinking={"type": "adaptive"},
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    ) as stream:
-        for event in stream:
-            if (
-                event.type == "content_block_delta"
-                and event.delta.type == "text_delta"
-            ):
-                full_text += event.delta.text
-    return full_text
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    )
+    return response.choices[0].message.content or ""
 
 
 def _parse_json_response(text: str) -> Any:
@@ -134,7 +130,7 @@ def generate_travel_trajectory(
         "Include commutes, errands, social activities, and trips mentioned in events. "
         "Output JSON only."
     )
-    raw = _call_claude(system, user, max_tokens=12000)
+    raw = _call_claude(system, user, max_tokens=8192)
     return _parse_json_response(raw)
 
 
@@ -184,7 +180,7 @@ def generate_dialogue_history(
         "Turns must alternate user/assistant. Topics should emerge naturally from "
         "life events and user needs. Output JSON only."
     )
-    raw = _call_claude(system, user, max_tokens=10000)
+    raw = _call_claude(system, user, max_tokens=8192)
     return _parse_json_response(raw)
 
 
