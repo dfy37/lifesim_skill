@@ -1,11 +1,54 @@
 ---
 name: lifesim-user-trajectory-generation
 description: Generates a complete user life trajectory package for a given user profile, including travel trajectory, dialogue history, and belief states. Use when users request long-horizon user simulation, personalized life-context generation, dynamic user state construction, or synthetic history generation for agent personalization and evaluation.
+trigger: Use this skill when users ask to generate a user life trajectory, simulate user history, create a LifeSim package, or generate synthetic personal context for agent evaluation.
+requirements:
+  - python: ">=3.10"
+  - install: "pip install -r requirements.txt"
+  - env: "ANTHROPIC_API_KEY must be set"
 ---
 
 # LifeSim User Trajectory Generation
 
 Automated long-horizon user life simulation workflow for generating structured personal history, mobility patterns, and cognitive state information.
+
+## Setup
+
+```bash
+# Install dependencies (requires Python ≥ 3.10)
+pip install -r requirements.txt
+
+# Set your Anthropic API key
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+## Quick Start
+
+```python
+from lifesim import generate_user_life_trajectory
+
+user_profile = {
+    "user_id": "u_001",
+    "name": "Li Wei",
+    "age": 32,
+    "occupation": "software engineer",
+    "city": "Shanghai",
+    "personality_traits": ["introverted", "analytical", "health-conscious"],
+    "hobbies": ["cycling", "cooking", "reading sci-fi"],
+    "goals": ["career advancement", "improve fitness"],
+}
+
+result = generate_user_life_trajectory(
+    user_profile=user_profile,
+    start_date="2025-01-01",
+    end_date="2025-03-31",
+    city="Shanghai",
+    output_dir="lifesim_results",
+)
+
+print(f"Generated {len(result['life_events'])} events")
+print(f"Consistency score: {result['consistency_report']['overall_score']:.2f}")
+```
 
 ## When to Use This Skill
 
@@ -289,6 +332,14 @@ Example:
 5. **Preserve persona coherence** - Generated behavior should remain consistent with profile traits, routines, and constraints
 6. **Allow dynamic belief change** - Some beliefs should evolve over time as events accumulate
 7. **Inspect outputs manually when needed** - Especially for long-horizon settings or benchmark release data
+
+## Implementation Notes
+
+- All generation functions call `claude-opus-4-6` with **streaming** and **adaptive thinking** (`thinking: {type: "adaptive"}`).
+- The `ANTHROPIC_API_KEY` environment variable must be set before calling any function.
+- Long generations (full pipeline, hourly granularity) can take 2–5 minutes due to multi-step Claude calls.
+- All outputs are saved as UTF-8 JSON files; existing files are overwritten on re-run.
+- The `_client` singleton in `trajectory_core.py` is reused across calls within a Python session.
 
 ## Reference Materials
 
